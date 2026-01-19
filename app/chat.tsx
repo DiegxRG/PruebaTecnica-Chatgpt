@@ -1,55 +1,73 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
-    Alert,
-    FlatList,
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    StatusBar,
-    StyleSheet,
-    TouchableOpacity,
-    View
+  Alert,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  StatusBar,
+  StyleSheet,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import {
-    ActivityIndicator,
-    IconButton,
-    Surface,
-    Text,
-    TextInput
+  ActivityIndicator,
+  IconButton,
+  Surface,
+  Text,
+  TextInput
 } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context'; // ✅ CAMBIO 1: Usamos el hook
 import { useChat } from '../src/contexts/ChatContext';
 import { useTheme } from '../src/contexts/ThemeContext';
 import { sendMessageToOpenAIStream } from '../src/services/openai.service';
 
 export default function ChatScreen() {
-  const { apiKey, messages, addMessage, clearChat, logout } = useChat();
+  const { apiKey, messages, addMessage, logout } = useChat();
   const { colors, toggleTheme, theme, resetTheme } = useTheme();
+  
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
+  
   const router = useRouter();
   const flatListRef = useRef<FlatList>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Scroll automático
-  useEffect(() => {
-    if (messages.length > 1 || streamingContent) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+  // ✅ CAMBIO 1: Obtenemos las medidas seguras calculadas por tu Layout
+  const insets = useSafeAreaInsets();
+
+  // ✅ CAMBIO 2: Lógica de Datos (Streaming integrado en la lista)
+  const displayMessages = useMemo(() => messages.filter(m => m.role !== 'system'), [messages]);
+
+  const dataWithStreaming = useMemo(() => {
+    // Si hay streaming, lo agregamos como si fuera un mensaje más al final
+    if (streamingContent && loading) {
+      return [
+        ...displayMessages,
+        { role: 'assistant' as const, content: streamingContent, isStreaming: true }
+      ];
     }
-  }, [messages, streamingContent]);
+    return displayMessages;
+  }, [displayMessages, streamingContent, loading]);
+
+  // ✅ CAMBIO 3: Scroll Nativo (Sin setTimeout)
+  const onContentSizeChange = () => {
+    flatListRef.current?.scrollToEnd({ animated: true });
+  };
 
   const handleSend = async () => {
-    if (!input.trim()) return;
+    const textToSend = input.trim();
+    if (!textToSend) return;
 
-    const userMessage = { role: 'user' as const, content: input.trim() };
-    addMessage(userMessage);
     setInput('');
     setLoading(true);
     setStreamingContent('');
+
+    const userMessage = { role: 'user' as const, content: textToSend };
+    addMessage(userMessage);
 
     let fullResponse = ''; 
     abortControllerRef.current = new AbortController();
@@ -101,25 +119,25 @@ export default function ChatScreen() {
     );
   };
 
-  const displayMessages = messages.filter(m => m.role !== 'system');
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.navy.main }}>
-      {/* SOLUCIÓN 2: StatusBar Translúcida y manejo de espacio */}
-      <StatusBar 
-        barStyle="light-content" 
-        backgroundColor="transparent" 
-        translucent 
-      />
       
-      {/* 1. HEADER (Fijo, fuera del KeyboardAvoidingView para que no se mueva raro) */}
-      <View style={styles.headerSafeContainer}>
+      {/* StatusBar transparente para aprovechar toda la pantalla */}
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor="transparent"
+        translucent
+      />
+
+      {/* ✅ CAMBIO 4: Header Manual. Usamos insets.top para el padding. */}
+      <View style={[styles.headerSafeContainer, { paddingTop: insets.top }]}>
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <View style={styles.avatarContainer}>
-              <Image 
-                source={{ uri: 'https://cdn-icons-png.flaticon.com/512/4712/4712109.png' }} 
+              <Image
+                source={{ uri: 'https://cdn-icons-png.flaticon.com/512/4712/4712109.png' }}
                 style={styles.avatarImage}
               />
               <View style={styles.onlineDot} />
@@ -133,26 +151,34 @@ export default function ChatScreen() {
           </View>
 
           <View style={styles.headerRight}>
-             <IconButton icon={theme === 'dark' ? 'weather-sunny' : 'weather-night'} iconColor="white" size={24} onPress={toggleTheme} />
-             <IconButton icon="logout" iconColor="#FDA4AF" size={24} onPress={handleExit} />
+            <IconButton
+              icon={theme === 'dark' ? 'weather-sunny' : 'weather-night'}
+              iconColor="white"
+              size={24}
+              onPress={toggleTheme}
+            />
+            <IconButton
+              icon="logout"
+              iconColor="#FDA4AF"
+              size={24}
+              onPress={handleExit}
+            />
           </View>
         </View>
       </View>
 
-      {/* SOLUCIÓN 1: El KeyboardAvoidingView envuelve el CHAT y el INPUT */}
+      {/* ✅ CAMBIO 5: Teclado. 'undefined' en Android para que no pelee con el sistema */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
-        // keyboardVerticalOffset ayuda si el header tapa algo, ajústalo si es necesario
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0} 
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
-        {/* 2. BODY (Tarjeta Blanca) */}
         <View style={styles.bodyContainer}>
           <LinearGradient
               colors={['#FFFFFF', '#F8FAFC']}
               style={{ flex: 1 }}
           >
-              {displayMessages.length === 0 ? (
+              {displayMessages.length === 0 && !streamingContent ? (
                 <View style={styles.emptyState}>
                   <Image 
                     source={{ uri: 'https://cdn-icons-png.flaticon.com/512/8943/8943377.png' }}
@@ -164,57 +190,82 @@ export default function ChatScreen() {
                 </View>
               ) : (
                 <FlatList
-                  ref={flatListRef}
-                  data={displayMessages}
-                  keyExtractor={(_, index) => index.toString()}
-                  contentContainerStyle={styles.messagesList}
-                  showsVerticalScrollIndicator={false}
-                  renderItem={({ item }) => (
-                    <View style={[
-                      styles.bubbleWrapper, 
-                      item.role === 'user' ? styles.wrapperUser : styles.wrapperBot
-                    ]}>
-                      {item.role === 'assistant' && (
-                          <View style={styles.msgAvatarContainer}>
-                              <Image 
-                                  source={{ uri: 'https://cdn-icons-png.flaticon.com/512/4712/4712109.png' }} 
-                                  style={{ width: 24, height: 24 }}
-                              />
-                          </View>
-                      )}
-                      <Surface style={[
-                        styles.bubble,
-                        item.role === 'user' ? styles.userBubble : styles.botBubble,
-                      ]} elevation={1}>
-                        <Text style={[
-                          styles.bubbleText,
-                          item.role === 'user' ? styles.userBubbleText : styles.botBubbleText
-                        ]}>
-                          {item.content}
-                        </Text>
-                      </Surface>
-                    </View>
-                  )}
-                />
-              )}
+  ref={flatListRef}
+  data={dataWithStreaming}
+  keyExtractor={(_, index) => index.toString()}
+  
+  // 🔑 Espacio inferior para que el último mensaje no quede debajo del input
+  contentContainerStyle={[
+    styles.messagesList,
+    { paddingBottom: 12 }
+  ]}
 
-              {streamingContent ? (
-                 <View style={[styles.bubbleWrapper, styles.wrapperBot, { paddingHorizontal: 20 }]}>
-                    <View style={styles.msgAvatarContainer}>
-                        <Image source={{ uri: 'https://cdn-icons-png.flaticon.com/512/4712/4712109.png' }} style={{ width: 24, height: 24 }} />
-                    </View>
-                    <Surface style={[styles.bubble, styles.botBubble]} elevation={1}>
-                      <Text style={[styles.bubbleText, styles.botBubbleText]}>
-                          {streamingContent}<Text style={{color: colors.navy.main}}> ▍</Text> 
-                      </Text>
-                    </Surface>
-                 </View>
-              ) : null}
+  showsVerticalScrollIndicator={false}
+
+  // 🔑 Scroll automático REAL (streaming fluido)
+  onContentSizeChange={onContentSizeChange}
+
+  // 🔑 Manejo correcto del teclado (iOS + Android)
+  keyboardDismissMode="interactive"
+  keyboardShouldPersistTaps="handled"
+
+  // 🔑 iOS: deja que el sistema ajuste los insets automáticamente
+  contentInsetAdjustmentBehavior="automatic"
+
+  renderItem={({ item }) => (
+    <View
+      style={[
+        styles.bubbleWrapper,
+        item.role === 'user' ? styles.wrapperUser : styles.wrapperBot
+      ]}
+    >
+      {item.role === 'assistant' && (
+        <View style={styles.msgAvatarContainer}>
+          <Image
+            source={{ uri: 'https://cdn-icons-png.flaticon.com/512/4712/4712109.png' }}
+            style={{ width: 24, height: 24 }}
+          />
+        </View>
+      )}
+
+      <Surface
+        style={[
+          styles.bubble,
+          item.role === 'user' ? styles.userBubble : styles.botBubble
+        ]}
+        elevation={1}
+      >
+        <Text
+          style={[
+            styles.bubbleText,
+            item.role === 'user'
+              ? styles.userBubbleText
+              : styles.botBubbleText
+          ]}
+        >
+          {item.content}
+          {(item as any).isStreaming && (
+            <Text style={{ color: colors.navy.main }}> ▍</Text>
+          )}
+        </Text>
+      </Surface>
+    </View>
+  )}
+/>
+
+              )}
           </LinearGradient>
         </View>
 
-        {/* 3. INPUT AREA (Ahora dentro del KeyboardAvoidingView) */}
-        <View style={[styles.inputContainer, { backgroundColor: colors.neutral.white }]}>
+        {/* ✅ CAMBIO 6: Input Footer. Padding manual usando insets.bottom */}
+        <View style={[
+            styles.inputContainer, 
+            { 
+              backgroundColor: colors.neutral.white,
+              // Si hay notch abajo (iPhone X), usa ese espacio. Si no, usa 12px.
+              paddingBottom: insets.bottom > 0 ? insets.bottom : 12 
+            }
+        ]}>
           <View style={styles.inputWrapper}>
              <TextInput
                 mode="flat"
@@ -226,7 +277,7 @@ export default function ChatScreen() {
                 underlineColor="transparent"
                 activeUnderlineColor="transparent"
                 multiline
-             />
+              />
              <TouchableOpacity 
                 onPress={handleSend}
                 disabled={loading || !input.trim()}
@@ -252,15 +303,14 @@ const createStyles = (colors: any) => StyleSheet.create({
   // HEADER
   headerSafeContainer: {
     backgroundColor: colors.navy.main,
-    // SOLUCIÓN 2: Padding manual para Android
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+    // Sin paddingTop fijo, usamos insets
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingVertical: 14,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -269,7 +319,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   headerRight: {
     flexDirection: 'row',
-    gap: 5,
+    gap: 6,
   },
   avatarContainer: {
     position: 'relative',
@@ -303,18 +353,16 @@ const createStyles = (colors: any) => StyleSheet.create({
 
   // BODY
   bodyContainer: {
-    flex: 1, // Esto hace que ocupe todo el espacio disponible
+    flex: 1,
     backgroundColor: 'white',
     borderTopLeftRadius: 35,
     borderTopRightRadius: 35,
     overflow: 'hidden',
-    // Quitamos el marginTop fijo para evitar huecos al subir el teclado, 
-    // el diseño curvo se mantiene.
   },
   messagesList: {
     paddingHorizontal: 20,
     paddingTop: 30,
-    paddingBottom: 20,
+    // El paddingBottom se maneja dinámicamente en el contentContainerStyle
   },
   emptyState: {
     flex: 1,
@@ -345,11 +393,13 @@ const createStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
     marginBottom: 4,
   },
+  
   bubble: {
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 20,
-    maxWidth: '80%',
+    maxWidth: '80%', 
+    minWidth: 50, 
   },
   userBubble: {
     backgroundColor: colors.navy.main,
@@ -373,9 +423,8 @@ const createStyles = (colors: any) => StyleSheet.create({
   // INPUT
   inputContainer: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    // Importante para el teclado:
-    backgroundColor: 'white', 
+    paddingTop: 12,
+    // paddingBottom se aplica inline con insets
   },
   inputWrapper: {
     flexDirection: 'row',
@@ -392,6 +441,8 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 16,
     maxHeight: 100,
     paddingVertical: 10,
+    paddingHorizontal: 10,
+    textAlignVertical: 'top',
   },
   sendButton: {
     width: 44,
